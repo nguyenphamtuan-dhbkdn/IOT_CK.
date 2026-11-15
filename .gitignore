@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.env
+*.db
+static/captures/*.jpg
+static/captures/*.png
+ai_engine/models/*.onnx
+.venv/
+venv/
+*.log
+.DS_Store

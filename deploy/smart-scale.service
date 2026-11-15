@@ -1,0 +1,22 @@
+[Unit]
+Description=Smart AI Scale - Flask & SocketIO Edge Service
+After=network.target sound.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/IOT_CK
+Environment="PYTHONUNBUFFERED=1"
+EnvironmentFile=-/home/pi/IOT_CK/.env
+ExecStart=/usr/bin/python3 /home/pi/IOT_CK/app.py
+Restart=always
+RestartSec=3
+KillSignal=SIGINT
+TimeoutStopSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+

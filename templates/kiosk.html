@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Trạm cân AI — Kiosk</title>
+  <link rel="stylesheet" href="/static/vendor/inter/inter.css" />
+  <link rel="stylesheet" href="/static/vendor/tabler-icons/tabler-icons.min.css" />
+  <link rel="stylesheet" href="/static/vendor/tabler.min.css" />
+  <link rel="stylesheet" href="/static/css/app.css" />
+</head>
+<body>
+  <div class="kiosk-shell">
+    <!-- Topbar Kiosk -->
+    <header class="kiosk-topbar">
+      <div class="kiosk-brand">
+        <div class="brand-mark" aria-hidden="true">
+          <i class="ti ti-scale"></i>
+        </div>
+        <div>
+          <h1 class="kiosk-brand-title">Trạm cân thực phẩm AI</h1>
+          <p class="kiosk-brand-sub">Tự động nhận diện tươi/hỏng &amp; thanh toán VietQR</p>
+        </div>
+      </div>
+
+      <!-- Thanh tiến trình 4 bước: bước qua có dấu tích, bước hiện tại tô màu -->
+      <nav class="stage-stepper" id="pills" aria-label="Tiến trình cân">
+        <span class="pill" data-state="IDLE">
+          <span class="step-num">1</span>
+          <span class="step-check"><i class="ti ti-check"></i></span>
+          <span>Chờ hàng</span>
+        </span>
+        <span class="step-connector" aria-hidden="true"></span>
+        <span class="pill" data-state="STABILIZING">
+          <span class="step-num">2</span>
+          <span class="step-check"><i class="ti ti-check"></i></span>
+          <span>Ổn định</span>
+        </span>
+        <span class="step-connector" aria-hidden="true"></span>
+        <span class="pill" data-state="INSPECTING">
+          <span class="step-num">3</span>
+          <span class="step-check"><i class="ti ti-check"></i></span>
+          <span>Kiểm định AI</span>
+        </span>
+        <span class="step-connector" aria-hidden="true"></span>
+        <span class="pill" data-state="CHECKOUT">
+          <span class="step-num">4</span>
+          <span class="step-check"><i class="ti ti-check"></i></span>
+          <span>Thanh toán</span>
+        </span>
+      </nav>
+
+      <div class="kiosk-actions">
+        <button type="button" id="btn-kiosk-tare" class="btn-touch">
+          <i class="ti ti-refresh"></i>
+          <span>Về 0g</span>
+        </button>
+        <a href="/admin" class="btn-touch btn-touch-primary">
+          <i class="ti ti-layout-dashboard"></i>
+          <span>Quản trị</span>
+        </a>
+      </div>
+    </header>
+
+    <!-- Banner đỏ cảnh báo khi cân mất kết nối hoặc chưa hiệu chuẩn -->
+    <div class="scale-alert-banner" id="scale-alert-banner" role="alert" hidden>
+      <div class="scale-alert-content">
+        <div class="scale-alert-icon" aria-hidden="true">
+          <i class="ti ti-alert-triangle"></i>
+        </div>
+        <div>
+          <div id="scale-alert-title" style="font-size: 15px; font-weight: 700;">Cảnh báo cảm biến cân</div>
+          <div id="scale-alert-text" style="font-size: 13px; font-weight: 500;">Đang kiểm tra kết nối cân...</div>
+        </div>
+      </div>
+      <button type="button" id="btn-alert-recheck" class="btn-touch btn-touch-danger">
+        <i class="ti ti-reload"></i>
+        <span>Kiểm tra lại</span>
+      </button>
+    </div>
+
+    <!-- Khu vực làm việc 2 cột: Camera trái, Khối lượng + Hóa đơn phải -->
+    <main class="kiosk-workspace">
+      <section class="kiosk-card">
+        <div class="kiosk-card-head">
+          <h2 class="kiosk-card-title">
+            <i class="ti ti-camera"></i>
+            <span>Camera quan sát</span>
+          </h2>
+          <span id="hw-hint" class="pill">Đang kết nối phần cứng...</span>
+        </div>
+        <div class="video-wrap">
+          <img id="live" src="/video_feed" alt="Luồng camera trực tiếp" />
+          <div class="video-badge" id="cam-badge">LIVE</div>
+        </div>
+      </section>
+
+      <section class="kiosk-card">
+        <div class="kiosk-card-head">
+          <h2 class="kiosk-card-title">
+            <i class="ti ti-weight"></i>
+            <span>Khối lượng &amp; Hóa đơn</span>
+          </h2>
+          <span class="stable-chip" id="stable-label">Chưa ổn định</span>
+        </div>
+
+        <div class="weight-box">
+          <div class="weight-hero tabular-nums" id="weight">0.0<span>g</span></div>
+          <div class="meta-row">
+            <span id="state-label">IDLE — chờ đặt hàng</span>
+          </div>
+        </div>
+
+        <div class="result-card" id="result-card">
+          <div class="waiting-box" id="waiting">
+            <div class="waiting-icon" aria-hidden="true">
+              <i class="ti ti-apple"></i>
+            </div>
+            <p>Đặt thực phẩm lên đĩa cân (≥ 15g). Hệ thống sẽ tự ổn định, chụp ảnh AI và tính tiền.</p>
+          </div>
+
+          <div id="result-body" hidden>
+            <div class="invoice-grid">
+              <div class="invoice-info">
+                <div class="quality-pill" id="quality-title"></div>
+                <p class="product-line" id="product-line"></p>
+                <div class="price tabular-nums" id="price-line"></div>
+                <p class="invoice-msg" id="msg"></p>
+              </div>
+              <div class="qr-frame" id="qr-frame" hidden>
+                <img class="qr" id="qr" alt="Mã VietQR thanh toán" hidden />
+                <div class="qr-caption">Quét mã VietQR</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Thanh giả lập (tự động ẩn khi HARDWARE_MODE=real) -->
+    <footer class="sim-bar">
+      <label for="sim-range">Giả lập khối lượng (Mock):</label>
+      <input id="sim-range" type="range" min="0" max="1000" step="1" value="0" />
+      <strong class="sim-val-badge tabular-nums" id="sim-val">0 g</strong>
+      <button type="button" class="btn-touch" id="btn-zero">Về 0g / Tare</button>
+      <button type="button" class="btn-touch btn-touch-primary" id="btn-fresh">Lần sau: Fresh</button>
+      <button type="button" class="btn-touch btn-touch-danger" id="btn-rotten">Lần sau: Rotten</button>
+    </footer>
+  </div>
+
+  <script src="/static/vendor/socket.io.min.js"></script>
+  <script src="/static/vendor/tabler.min.js"></script>
+  <script src="/static/js/kiosk.js"></script>
+</body>
+</html>

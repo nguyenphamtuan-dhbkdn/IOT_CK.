@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Quản trị — Trạm cân thực phẩm AI</title>
+  <link rel="stylesheet" href="/static/vendor/inter/inter.css" />
+  <link rel="stylesheet" href="/static/vendor/tabler-icons/tabler-icons.min.css" />
+  <link rel="stylesheet" href="/static/vendor/tabler.min.css" />
+  <link rel="stylesheet" href="/static/css/app.css" />
+</head>
+<body>
+  <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
+  <div class="admin-layout">
+    <!-- Sidebar bên trái -->
+    <aside class="admin-sidebar" id="admin-sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-mark" aria-hidden="true">
+          <i class="ti ti-scale"></i>
+        </div>
+        <div>
+          <h1>Smart AI Scale</h1>
+          <span>Raspberry Pi 4 Edge</span>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav" aria-label="Điều hướng quản trị">
+        <a class="sidebar-link active" href="#sec-overview">
+          <i class="ti ti-dashboard"></i>
+          <span>Tổng quan hệ thống</span>
+        </a>
+        <a class="sidebar-link" href="#sec-pipeline">
+          <i class="ti ti-layout-kanban"></i>
+          <span>Trạng thái State Machine</span>
+        </a>
+        <a class="sidebar-link" href="#sec-analytics">
+          <i class="ti ti-chart-bar"></i>
+          <span>Thống kê &amp; Đơn giá</span>
+        </a>
+        <a class="sidebar-link" href="#sec-logs">
+          <i class="ti ti-history"></i>
+          <span>Lịch sử giao dịch</span>
+        </a>
+        <a class="sidebar-link" href="/">
+          <i class="ti ti-device-desktop"></i>
+          <span>Mở giao diện Kiosk</span>
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="d-flex align-items-center justify-content-between">
+          <span class="text-muted" style="font-size: 12px;">Chế độ chạy</span>
+          <span id="hw-mode-badge" class="pill">MODE: REAL</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Nội dung chính -->
+    <div class="admin-content">
+      <header class="admin-header">
+        <div class="admin-header-left">
+          <button type="button" class="mobile-menu-btn" id="btn-mobile-menu" aria-label="Mở menu">
+            <i class="ti ti-menu-2"></i>
+          </button>
+          <div>
+            <h2 class="admin-page-title">Bảng điều khiển quản trị</h2>
+            <p class="admin-page-sub">Giám sát phần cứng realtime, lịch sử cân AI và bảng giá sản phẩm</p>
+          </div>
+        </div>
+
+        <div class="admin-header-actions">
+          <button type="button" class="btn btn-outline-secondary" id="btn-tare-hw">
+            <i class="ti ti-refresh me-1"></i>
+            <span>Tare (Về 0g)</span>
+          </button>
+          <button type="button" class="btn btn-primary" id="btn-recheck-hw">
+            <i class="ti ti-activity-heartbeat me-1"></i>
+            <span>Kiểm tra lại</span>
+          </button>
+        </div>
+      </header>
+
+      <main class="admin-main">
+        <!-- Phần 1: Trạng thái phần cứng + Thẻ khối lượng realtime -->
+        <section id="sec-overview" class="admin-top-grid">
+          <div class="panel-card" id="hw-panel">
+            <div class="panel-card-header">
+              <h3 class="panel-card-title">
+                <i class="ti ti-cpu"></i>
+                <span>Trạng thái phần cứng (Raspberry Pi 4)</span>
+              </h3>
+              <span class="text-muted" style="font-size: 12px;" id="hw-last-updated">Đang đồng bộ...</span>
+            </div>
+            <div class="hw-grid" id="hw-grid">
+              <!-- Render tự động từ /api/hardware/status -->
+            </div>
+          </div>
+
+          <div class="panel-card live-scale-card">
+            <div class="panel-card-header" style="margin-bottom: 4px;">
+              <h3 class="panel-card-title">
+                <i class="ti ti-scale"></i>
+                <span>Khối lượng realtime</span>
+              </h3>
+              <span class="pill" id="admin-state-badge">IDLE</span>
+            </div>
+
+            <div class="live-weight-display">
+              <div>
+                <span class="live-weight-num tabular-nums" id="admin-live-weight">0.0</span>
+                <span class="live-weight-unit">g</span>
+              </div>
+              <span class="pill" id="admin-stable-badge">Chưa ổn định</span>
+            </div>
+
+            <div class="live-scale-meta">
+              <span id="admin-calib-status">Đang kiểm tra hiệu chuẩn...</span>
+              <span class="d-inline-flex align-items-center gap-1" id="admin-online-indicator">
+                <span class="status-dot offline"></span>
+                <span>Chờ tín hiệu</span>
+              </span>
+            </div>
+
+            <button type="button" class="btn btn-primary w-100" id="btn-admin-tare" style="min-height: 44px; font-weight: 700;">
+              <i class="ti ti-scale-outline me-2"></i>
+              <span>Tare cân về 0g</span>
+            </button>
+          </div>
+        </section>
+
+        <!-- Phần 2: KPI Tổng quan -->
+        <section class="kpi-cards" id="cards"></section>
+
+        <!-- Phần 3: Dòng trạng thái Kanban 4 trạng thái State Machine -->
+        <section id="sec-pipeline" class="panel-card">
+          <div class="panel-card-header">
+            <h3 class="panel-card-title">
+              <i class="ti ti-layout-kanban"></i>
+              <span>Luồng trạng thái State Machine</span>
+            </h3>
+            <span class="text-muted" style="font-size: 12px;">Cập nhật tự động qua Socket.IO</span>
+          </div>
+
+          <div class="kanban-grid" id="kanban-pipeline">
+            <div class="kanban-col is-active" data-kanban-state="IDLE">
+              <div class="kanban-col-header state-idle">
+                <span>1. IDLE (Chờ hàng)</span>
+                <span class="kanban-count-badge" id="kanban-count-IDLE">1</span>
+              </div>
+              <div class="kanban-col-body">
+                <div class="kanban-card-item">
+                  <strong>Ngưỡng kích hoạt</strong>
+                  <span>Đặt thực phẩm ≥ 15g để bắt đầu cân</span>
+                </div>
+                <div class="kanban-card-item" id="kanban-info-IDLE">
+                  <strong>Trạng thái</strong>
+                  <span>Đang sẵn sàng nhận hàng</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="kanban-col" data-kanban-state="STABILIZING">
+              <div class="kanban-col-header state-stabilizing">
+                <span>2. STABILIZING (Ổn định)</span>
+                <span class="kanban-count-badge" id="kanban-count-STABILIZING">0</span>
+              </div>
+              <div class="kanban-col-body">
+                <div class="kanban-card-item">
+                  <strong>Điều kiện ổn định</strong>
+                  <span>Δm &lt; 2g liên tục trong 1.5s</span>
+                </div>
+                <div class="kanban-card-item" id="kanban-info-STABILIZING">
+                  <strong>Trạng thái</strong>
+                  <span>Chờ cân ổn định</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="kanban-col" data-kanban-state="INSPECTING">
+              <div class="kanban-col-header state-inspecting">
+                <span>3. INSPECTING (Kiểm định AI)</span>
+                <span class="kanban-count-badge" id="kanban-count-INSPECTING">0</span>
+              </div>
+              <div class="kanban-col-body">
+                <div class="kanban-card-item">
+                  <strong>Xử lý hình ảnh</strong>
+                  <span>Chụp khung hình &amp; chạy model AI</span>
+                </div>
+                <div class="kanban-card-item" id="kanban-info-INSPECTING">
+                  <strong>Trạng thái</strong>
+                  <span>Đang chờ tín hiệu ổn định</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="kanban-col" data-kanban-state="CHECKOUT">
+              <div class="kanban-col-header state-checkout">
+                <span>4. CHECKOUT (Thanh toán)</span>
+                <span class="kanban-count-badge" id="kanban-count-CHECKOUT">0</span>
+              </div>
+              <div class="kanban-col-body">
+                <div class="kanban-card-item">
+                  <strong>Xuất hóa đơn &amp; VietQR</strong>
+                  <span>Hiển thị trên Kiosk &amp; LCD 16x2</span>
+                </div>
+                <div class="kanban-card-item" id="kanban-info-CHECKOUT">
+                  <strong>Phiên gần nhất</strong>
+                  <span>Chưa có phiên hoàn tất</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Phần 4: Biểu đồ Chart.js (local) & Đơn giá sản phẩm -->
+        <section id="sec-analytics" class="admin-grid-2">
+          <div class="panel-card">
+            <div class="panel-card-header">
+              <h3 class="panel-card-title">
+                <i class="ti ti-chart-bar"></i>
+                <span>Tỷ lệ tươi / hư hỏng theo ngày</span>
+              </h3>
+            </div>
+            <div style="position: relative; min-height: 240px;">
+              <canvas id="chart" height="190"></canvas>
+            </div>
+          </div>
+
+          <div class="panel-card">
+            <div class="panel-card-header">
+              <h3 class="panel-card-title">
+                <i class="ti ti-currency-dong"></i>
+                <span>Đơn giá sản phẩm (VND/kg)</span>
+              </h3>
+            </div>
+            <div class="table-responsive">
+              <table class="admin-table">
+                <thead>
+                  <tr>
+                    <th>Mã</th>
+                    <th>Tên sản phẩm</th>
+                    <th>Giá/kg</th>
+                    <th>Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody id="products"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- Phần 5: Bảng lịch sử giao dịch có lọc -->
+        <section id="sec-logs" class="panel-card">
+          <div class="panel-card-header">
+            <h3 class="panel-card-title">
+              <i class="ti ti-list-details"></i>
+              <span>Lịch sử cân &amp; bằng chứng AI</span>
+            </h3>
+
+            <div class="filter-toolbar">
+              <input
+                type="search"
+                id="log-filter-search"
+                class="form-control form-control-sm"
+                style="width: 190px;"
+                placeholder="Tìm sản phẩm, mã..."
+              />
+              <select id="log-filter-quality" class="form-select form-select-sm" style="width: 155px;">
+                <option value="ALL">Tất cả chất lượng</option>
+                <option value="FRESH">Tươi (FRESH)</option>
+                <option value="ROTTEN">Hư hỏng (ROTTEN)</option>
+              </select>
+              <select id="log-filter-product" class="form-select form-select-sm" style="width: 165px;">
+                <option value="ALL">Tất cả sản phẩm</option>
+              </select>
+              <span class="pill tabular-nums" id="log-filter-count">0 giao dịch</span>
+            </div>
+          </div>
+
+          <div class="table-responsive">
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>Thời điểm</th>
+                  <th>Ảnh</th>
+                  <th>Sản phẩm</th>
+                  <th>Khối lượng</th>
+                  <th>Kết quả AI</th>
+                  <th>Thanh toán</th>
+                </tr>
+              </thead>
+              <tbody id="logs"></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script src="/static/vendor/socket.io.min.js"></script>
+  <script src="/static/vendor/chart.umd.min.js"></script>
+  <script src="/static/vendor/tabler.min.js"></script>
+  <script src="/static/js/admin.js"></script>
+</body>
+</html>

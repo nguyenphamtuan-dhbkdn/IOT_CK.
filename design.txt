@@ -1,0 +1,288 @@
+================================================================================
+TÀI LIỆU THIẾT KẾ HỆ THỐNG (SYSTEM ARCHITECTURE & DESIGN SPECIFICATION)
+ĐỀ TÀI: TRẠM CÂN TỰ PHỤC VỤ & KIỂM ĐỊNH CHẤT LƯỢNG THỰC PHẨM BẰNG AI
+================================================================================
+
+1. TỔNG QUAN HỆ THỐNG & SƠ ĐỒ PHẦN CỨNG (HARDWARE ARCHITECTURE)
+--------------------------------------------------------------------------------
+1.1. Danh mục phần cứng chính:
+- Vi máy tính trung tâm (Edge Device): Raspberry Pi 4 Model B.
+- Thu thập hình ảnh: USB Webcam (Jieli Technology UVC Camera - cổng /dev/video0).
+- Cảm biến trọng lượng: Loadcell (1kg/5kg) + Module ADC 24-bit HX711.
+
+1.2. Sơ đồ đấu nối HX711 trực tiếp vào GPIO Raspberry Pi 4 (Phương án B):
++---------------+-----------------------+------------------------+
+| Chân HX711    | Chân Vật Lý (Board)   | Chân BCM (GPIO)        |
++---------------+-----------------------+------------------------+
+| VCC           | Pin 1 (3.3V) / Pin 2  | Nguồn 3.3V (Khuyên dùng|
+|               |                       | 3.3V để an toàn logic) |
+| GND           | Pin 6                 | GND                    |
+| DT (DOUT)     | Pin 29                | GPIO 5                 |
+| SCK (PD_SCK)  | Pin 31                | GPIO 6                 |
++---------------+-----------------------+------------------------+
+* Lưu ý kỹ thuật: Chân GPIO của Raspberry Pi 4 hoạt động ở mức logic $3.3\text{V}$. Nên cấp nguồn `VCC` của HX711 vào `Pin 1` ($3.3\text{V}$) (hoặc cấp $5\text{V}$ cho mạch analog `VDD` và $3.3\text{V}$ cho `VCC` nếu dùng board HX711 tách nguồn) để tránh áp $5\text{V}$ xông ngược vào chân `GPIO 5` (DT).
+* Lọc nhiễu phần mềm (Median Filter): Do hệ điều hành Linux trên Raspberry Pi 4 không phải thời gian thực tuyệt đối (Non-RTOS), quá trình đọc bit-banging từ HX711 đôi khi có gai nhiễu (spikes). Luôn lấy trung vị (Median) của $5$ đến $7$ mẫu liên tiếp để triệt tiêu sai số.
+
+
+2. MẪU THIẾT KẾ PHẦN MỀM (SOFTWARE DESIGN PATTERNS)
+--------------------------------------------------------------------------------
+Để mã nguồn dễ bảo trì, mở rộng và đạt điểm cao khi bảo vệ đồ án, hệ thống áp dụng 4 Design Patterns cốt lõi:
+
+2.1. State Pattern (Mẫu Trạng Thái) - Điều khiển luồng nghiệp vụ bàn cân:
+Hệ thống luôn nằm trong 1 trong 4 trạng thái rõ ràng, tránh việc AI chạy liên tục gây quá tải CPU:
+- [IDLE] (Chờ): Khối lượng $m < 10\text{g}$. Màn hình phát luồng livestream, chờ đặt hàng.
+- [STABILIZING] (Đang ổn định): Phát hiện $m \ge 15\text{g}$. Hệ thống đo độ lệch $\Delta m = |m_t - m_{t-1}|$. Khi $\Delta m < 2\text{g}$ liên tục trong $1.5\text{s}$ -> Chuyển sang trạng thái [INSPECTING].
+- [INSPECTING] (Đang kiểm định AI): Chụp 1 khung hình nét nhất từ Webcam, đưa vào model AI suy luận (Inference) -> Tính tiền hoặc Cảnh báo -> Đẩy dữ liệu lên Web/Database -> Chuyển sang [CHECKOUT].
+- [CHECKOUT] (Hoàn tất/Chờ lấy hàng): Giữ nguyên hóa đơn và mã QR trên màn hình. Khi người dùng nhấc thực phẩm ra ($m < 10\text{g}$) -> Tự động reset về [IDLE].
+
+2.2. Producer-Consumer & Observer Pattern (Đa luồng bất đồng bộ):
+- Thread 1 (Weight Producer): Đọc HX711 liên tục ở tần số $10\text{Hz}$, đẩy số cân đã lọc nhiễu vào hàng đợi sự kiện và phát qua WebSocket lên giao diện Web.
+- Thread 2 (Camera Producer): Luôn đọc khung hình mới nhất từ `/dev/video0` vào biến bộ đệm 1 khung hình (Single-frame Ring Buffer) để phục vụ đồng thời cho MJPEG Web Stream và chụp ảnh tức thời không bị trễ (Zero-latency capture).
+- Thread 3 (AI & Business Consumer): Lắng nghe sự kiện từ State Machine. Chỉ thức dậy khi nhận tín hiệu `WEIGHT_STABLE`.
+
+2.3. Strategy Pattern (Mẫu Chiến Lược) - Hoán đổi mô hình AI & Chính sách giá:
+- `AIInferenceStrategy`: Cho phép dễ dàng chuyển đổi giữa `YOLOv8Strategy`, `MobileNetStrategy`, hoặc `MockAIStrategy` (dùng khi test giao diện mà chưa cần chạy model thật) mà không làm thay đổi code điều khiển.
+- `PricingStrategy`:
+  + `StandardPricing`: Áp dụng khi `status == "FRESH"` ($\text{Tổng tiền} = \text{Khối lượng} \times \text{Đơn giá}$).
+  + `RejectedPricing`: Áp dụng khi `status == "ROTTEN"` (Khóa thanh toán, phát cảnh báo).
+  + `DiscountPricing`: (Tùy chọn) Giảm giá $50\%$ cho thực phẩm chín/cận đát.
+
+2.4. Singleton Pattern (Quản lý tài nguyên phần cứng):
+- Đảm bảo chỉ có duy nhất 1 instance quản lý `/dev/video0` (`CameraManager`) và 1 instance quản lý GPIO `HX711` (`ScaleManager`), tránh lỗi xung đột tài nguyên (`Device or resource busy`).
+
+
+3. KIẾN TRÚC MÔ HÌNH AI (AI MODEL ARCHITECTURE & PIPELINE)
+--------------------------------------------------------------------------------
+3.1. Kiến trúc lựa chọn: YOLOv8n (Nano) xuất sang định dạng ONNX / NCNN
+- Kích thước đầu vào (Input Resolution): $320 \times 320 \times 3$ hoặc $416 \times 416 \times 3$.
+- Cấu trúc mạng:
+  + Backbone: CSPDarknet53 thu gọn (trích xuất đặc trưng màu sắc vết thối/mốc, hình dáng quả).
+  + Neck: PANet (Path Aggregation Network - kết hợp đặc trưng đa tỉ lệ).
+  + Head: Decoupled Head (tách riêng nhánh dự đoán tọa độ Bounding Box và nhánh phân loại nhãn).
+- Tốc độ suy luận trên Raspberry Pi 4 (CPU ARM Cortex-A72): $\sim 150\text{ms} - 250\text{ms}/\text{ảnh}$.
+
+3.2. Danh sách nhãn huấn luyện (Classes):
+Tập trung vào 3 loại quả tiêu biểu (6 classes) để độ chính xác đạt $>92\%$:
+- `0: Fresh_Apple`   (Táo tươi)
+- `1: Rotten_Apple`  (Táo hỏng/thối/dập)
+- `2: Fresh_Banana`  (Chuối tươi)
+- `3: Rotten_Banana` (Chuối hỏng/thâm đen)
+- `4: Fresh_Orange`  (Cam tươi)
+- `5: Rotten_Orange` (Cam hỏng/mốc)
+
+3.3. Logic hậu xử lý (Post-processing Logic):
+- Nếu phát hiện nhiều quả trong 1 lần cân:
+  + Kiểm tra toàn bộ danh sách nhãn trả về: Nếu có BẤT KỲ quả nào mang nhãn `Rotten_*` với độ tin cậy $\text{Confidence} \ge 0.60$ -> Đánh giá toàn bộ mẻ cân là `ROTTEN` (yêu cầu khách bỏ quả hỏng ra).
+  + Nếu tất cả đều là `Fresh_*` và cùng loại -> Tính tổng tiền bình thường.
+
+
+4. KIẾN TRÚC PHẦN MỀM & WEB FULL-STACK (SYSTEM ARCHITECTURE)
+--------------------------------------------------------------------------------
+Sử dụng mô hình 3 tầng (3-Tier Architecture) kết hợp giao tiếp thời gian thực:
+
+[TẦNG 1: EDGE LAYER - Python trên Raspberry Pi 4]
+  ├── `ScaleService`: Đọc GPIO 5/6 (HX711), lọc trung vị, phát hiện ổn định.
+  ├── `CameraService`: Đọc USB Webcam `/dev/video0`, cung cấp luồng `/video_feed`.
+  ├── `AIService`: Chạy model `best.onnx` khi cân ổn định, vẽ khung Bounding Box.
+  └── Giao tiếp: Gửi dữ liệu realtime qua Socket.IO / REST API.
+         │
+         ▼ (HTTP / WebSocket)
+[TẦNG 2: BACKEND & DATABASE LAYER - Node.js/Express hoặc Python Flask-SocketIO]
+  ├── REST API: Quản lý danh mục sản phẩm, đơn giá, lịch sử giao dịch, thống kê.
+  ├── WebSocket Server: Đẩy số cân (gram) mỗi $100\text{ms}$ và kết quả AI lên trình duyệt.
+  └── Database: MongoDB (lưu trữ linh hoạt JSON) hoặc SQLite/PostgreSQL.
+         │
+         ▼
+[TẦNG 3: FRONTEND LAYER - Web UI]
+  ├── Giao diện Kiosk (Màn hình thu ngân/khách hàng):
+  │     - Xem camera trực tiếp + ảnh chụp AI.
+  │     - Đồng hồ số cân điện tử nhảy realtime.
+  │     - Hiển thị trạng thái: [TƯƠI - ĐẠT CHUẨN] hoặc [CẢNH BÁO HƯ HỎNG].
+  │     - Tự động tạo mã VietQR theo số tiền thực tế.
+  └── Giao diện Admin Dashboard (Quản lý):
+        - Cập nhật đơn giá từng loại quả.
+        - Xem lại lịch sử cân kèm hình ảnh bằng chứng.
+        - Biểu đồ thống kê tỷ lệ thực phẩm đạt chuẩn vs. hư hỏng.
+
+
+5. THIẾT KẾ CƠ SỞ DỮ LIỆU (DATABASE SCHEMA - MONGODB)
+--------------------------------------------------------------------------------
+Hệ thống gồm 3 Collection chính:
+
+5.1. Collection `products` (Danh mục sản phẩm & Đơn giá):
+```json
+{
+  "_id": "prod_apple_01",
+  "code": "APPLE",
+  "name_vi": "Táo Đỏ Mỹ",
+  "fresh_label": "Fresh_Apple",
+  "rotten_label": "Rotten_Apple",
+  "price_per_kg": 65000,
+  "currency": "VND",
+  "is_active": true,
+  "updated_at": "2026-11-04T15:30:00Z"
+}
+```
+
+5.2. Collection `weighing_logs` (Lịch sử từng lần cân & Kiểm định AI):
+```json
+{
+  "_id": "log_20261104_001",
+  "timestamp": "2026-11-04T15:45:12Z",
+  "product_code": "APPLE",
+  "product_name": "Táo Đỏ Mỹ",
+  "weight_gram": 350.5,
+  "ai_result": {
+    "detected_class": "Fresh_Apple",
+    "quality_status": "FRESH",
+    "confidence": 0.94,
+    "inference_time_ms": 185,
+    "image_url": "/static/captures/20261104_154512.jpg"
+  },
+  "billing": {
+    "is_sellable": true,
+    "unit_price_per_kg": 65000,
+    "total_amount": 22782,
+    "payment_status": "PAID",
+    "qr_payload": "https://img.vietqr.io/image/..."
+  }
+}
+```
+
+5.3. Collection `daily_analytics` (Thống kê tổng hợp theo ngày):
+```json
+{
+  "_id": "stat_2026_11_04",
+  "date": "2026-11-04",
+  "total_inspections": 120,
+  "fresh_count": 108,
+  "rotten_count": 12,
+  "total_weight_kg": 45.8,
+  "total_revenue_vnd": 2850000
+}
+```
+
+
+6. CẤU TRÚC THƯ MỤC DỰ ÁN KHUYẾN NGHỊ (PROJECT DIRECTORY STRUCTURE)
+--------------------------------------------------------------------------------
+```text
+smart-ai-scale/
+├── hardware/
+│   ├── __init__.py
+│   ├── scale_hx711.py       # Class đọc GPIO 5/6, Tare, lọc trung vị
+│   └── camera_usb.py        # Singleton quản lý /dev/video0
+├── ai_engine/
+│   ├── models/
+│   │   └── best.onnx        # Trọng số YOLOv8n đã tối ưu
+│   └── detector.py          # Strategy Pattern cho suy luận AI
+├── core/
+│   ├── state_machine.py     # Quản lý 4 trạng thái IDLE -> STABILIZING -> INSPECTING -> CHECKOUT
+│   └── pricing.py           # Công thức tính tiền & tạo link VietQR
+├── static/
+│   └── captures/            # Lưu ảnh chụp bằng chứng mỗi lần cân
+├── templates/
+│   ├── kiosk.html           # Giao diện màn hình trạm cân
+│   └── admin.html           # Giao diện quản lý & thống kê
+├── app.py                   # Server chính (Flask-SocketIO / FastAPI)
+└── requirements.txt
+```
+
+
+7. KHUNG CODE MẪU TÍCH HỢP HX711 + STATE MACHINE + CAMERA (PYTHON)
+--------------------------------------------------------------------------------
+Dưới đây là khung code chuẩn minh họa cách ghép nối chân GPIO 5/6 của HX711 với luồng Camera và State Machine trên Raspberry Pi 4:
+
+```python
+import time
+import statistics
+import threading
+import cv2
+import RPi.GPIO as GPIO
+from hx711 import HX711
+
+class ScaleSensor:
+    """Quản lý đọc cảm biến HX711 trên GPIO 5 (DT) và GPIO 6 (SCK)"""
+    def __init__(self, dout_pin=5, pd_sck_pin=6, reference_unit=420.0):
+        GPIO.setwarnings(False)
+        GPIO.setmode(GPIO.BCM)
+        self.hx = HX711(dout_pin=dout_pin, pd_sck_pin=pd_sck_pin)
+        self.hx.set_reading_format("MSB", "MSB")
+        self.hx.set_reference_unit(reference_unit) # Hệ số hiệu chuẩn (Calibration factor)
+        self.hx.reset()
+        self.hx.tare() # Trừ bì về 0 lúc khởi động
+        self.current_weight = 0.0
+        self.is_stable = False
+        self._history = []
+
+    def read_filtered_weight(self):
+        # Lấy trung vị của 5 lần đọc để khử gai nhiễu trên Linux
+        raw_vals = [self.hx.get_weight(1) for _ in range(5)]
+        median_val = statistics.median(raw_vals)
+        weight = max(0.0, round(median_val, 1))
+        
+        # Cập nhật lịch sử 10 mẫu gần nhất để xét độ ổn định
+        self._history.append(weight)
+        if len(self._history) > 10:
+            self._history.pop(0)
+            
+        if len(self._history) == 10:
+            max_diff = max(self._history) - min(self._history)
+            self.is_stable = (max_diff < 2.0) and (weight >= 15.0)
+        else:
+            self.is_stable = False
+
+        self.current_weight = weight
+        return weight
+
+class SmartScaleStateMachine:
+    """State Pattern điều phối chu trình cân và gọi AI"""
+    STATE_IDLE = "IDLE"
+    STATE_STABILIZING = "STABILIZING"
+    STATE_INSPECTING = "INSPECTING"
+    STATE_CHECKOUT = "CHECKOUT"
+
+    def __init__(self, scale: ScaleSensor, camera_capture_fn, ai_predict_fn):
+        self.state = self.STATE_IDLE
+        self.scale = scale
+        self.capture_frame = camera_capture_fn
+        self.ai_predict = ai_predict_fn
+        self.last_result = None
+
+    def update(self):
+        w = self.scale.read_filtered_weight()
+
+        if self.state == self.STATE_IDLE:
+            if w >= 15.0:
+                print(f"[STATE] Phát hiện vật nặng ({w}g) -> Đang chờ ổn định...")
+                self.state = self.STATE_STABILIZING
+
+        elif self.state == self.STATE_STABILIZING:
+            if w < 10.0:
+                self.state = self.STATE_IDLE
+            elif self.scale.is_stable:
+                print(f"[STATE] Cân đã ổn định ở mức {w}g -> Kích hoạt Camera & AI!")
+                self.state = self.STATE_INSPECTING
+
+        elif self.state == self.STATE_INSPECTING:
+            frame = self.capture_frame()
+            if frame is not None:
+                # Chạy AI nhận diện trên 1 khung hình duy nhất
+                self.last_result = self.ai_predict(frame, w)
+                print(f"[AI RESULT] {self.last_result}")
+            self.state = self.STATE_CHECKOUT
+
+        elif self.state == self.STATE_CHECKOUT:
+            # Giữ nguyên hóa đơn cho đến khi lấy hàng ra khỏi bàn cân
+            if w < 10.0:
+                print("[STATE] Đã lấy hàng ra khỏi cân -> Reset về IDLE.")
+                self.last_result = None
+                self.state = self.STATE_IDLE
+```
+
+
+8. LỘ TRÌNH TRIỂN KHAI THỰC TẾ (IMPLEMENTATION ROADMAP)
+--------------------------------------------------------------------------------
+- Giai đoạn 1 (Phần cứng & Hiệu chuẩn cân): Đấu nối HX711 vào GPIO 5 & GPIO 6. Chạy script hiệu chuẩn (`calibration.py`) với 1 vật mẫu biết trước khối lượng (ví dụ quả cân hoặc chai nước $500\text{g}$) để tìm `reference_unit` chuẩn xác.
+- Giai đoạn 2 (Thu thập dữ liệu & Huấn luyện AI): Dùng chính chiếc Webcam gắn cố định trên giá đỡ chụp mỗi loại quả (Tươi/Hỏng) 50 tấm đặt trên mặt bàn cân, kết hợp bộ dữ liệu Kaggle và train YOLOv8n trên Google Colab.
+- Giai đoạn 3 (Ghép nối Edge & Web): Tích hợp `ScaleSensor` và model `best.onnx` vào server Flask/Node.js, hiển thị giao diện Kiosk tính tiền tự động.
+================================================================================

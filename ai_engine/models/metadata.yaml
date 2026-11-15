@@ -1,0 +1,83 @@
+description: Ultralytics YOLO26n model trained on /tmp/dataset/data.yaml
+author: Ultralytics
+date: "2026-11-14T15:42:18.002942+00:00"
+version: "8.4.202"
+license: AGPL-3.0 License (https://ultralytics.com/license)
+docs: https://docs.ultralytics.com
+stride: 32
+task: detect
+head: Detect
+batch: 1
+imgsz:
+- 416
+- 416
+names:
+  0: Apple
+  1: Apricot
+  2: Asparagus
+  3: Avocado
+  4: Banana
+  5: Beef
+  6: Beetroot
+  7: Bell Pepper
+  8: Berry
+  9: Cabbage
+  10: Cantaloupe
+  11: Carrot
+  12: Cashew Nut
+  13: Cauliflower
+  14: Cherry
+  15: Cherry Tomato
+  16: Chestnut
+  17: Chicken
+  18: Coconut
+  19: Corn
+  20: Crab
+  21: Cucumber
+  22: Date
+  23: Dragon Fruit
+  24: Egg
+  25: Eggplant
+  26: Fig
+  27: Fish
+  28: Garlic
+  29: Ginger
+  30: Grape
+  31: Grapefruit
+  32: Green Beans
+  33: Guava
+  34: Kiwi
+  35: Lamb
+  36: Leek
+  37: Lemon
+  38: Lime
+  39: Lobster
+  40: Lychee
+  41: Mango
+  42: Mangosteen
+  43: Mushroom
+  44: Nectarine
+  45: Orange
+  46: Passion Fruit
+  47: Peach
+  48: Pear
+  49: Pineapple
+  50: Plum
+  51: Pomegranate
+  52: Pork
+  53: Potato
+  54: Rambutan
+  55: Red Onion
+  56: Shrimp
+  57: Star Fruit
+  58: Sweet Potato
+  59: Tomato
+  60: Walnut
+  61: Watermelon
+  62: White Onion
+  63: Zucchini
+args:
+  batch: 1
+  quantize: null
+channels: 3
+end2end: false
